@@ -22,8 +22,10 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.ViewTreeObserver
 import android.view.WindowInsets
 import android.view.WindowManager
+import android.view.animation.DecelerateInterpolator
 import android.view.animation.OvershootInterpolator
 import android.widget.FrameLayout
 import androidx.compose.animation.core.animateFloatAsState
@@ -479,9 +481,21 @@ class BubbleService : Service() {
         val root = PanelRoot(this) { closePanel() }.owned()
         root.addView(compose { PanelUi(model, maxH) })
         panel = root
-        bubble?.visibility = View.INVISIBLE
+        // I start the window invisible and slide it in once it has a real height. Animating the view
+        // keeps the window size steady, so Telegram and I don't relayout on every frame.
+        root.alpha = 0f
+        root.translationY = dp(28).toFloat()
         wm.addView(root, lp)
         root.requestFocus()
+        root.viewTreeObserver.addOnGlobalLayoutListener(object : ViewTreeObserver.OnGlobalLayoutListener {
+            override fun onGlobalLayout() {
+                if (root.height <= 0) return
+                root.viewTreeObserver.removeOnGlobalLayoutListener(this)
+                bubble?.visibility = View.INVISIBLE
+                root.animate().alpha(1f).translationY(0f).setDuration(200)
+                    .setInterpolator(DecelerateInterpolator()).start()
+            }
+        })
     }
 
     private fun closePanel() {

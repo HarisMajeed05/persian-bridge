@@ -1,11 +1,6 @@
 package app.persianbridge
 
 import android.content.Context
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,7 +14,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableIntStateOf
@@ -107,6 +101,9 @@ class PanelModel(
 
     fun close() = onClose()
 
+    /** When I can't read the name from Telegram, I let the user type it so Smart can still be set per chat. */
+    fun nameChat(name: String) { title = name.trim().take(80).ifBlank { null } }
+
     // ---------- reading ----------
 
     fun reread() { scope.launch { readChat() } }
@@ -121,7 +118,8 @@ class PanelModel(
             title = null; msgs = emptyList(); readState = ReadState.FAILED
             return
         }
-        title = snap.title
+        // If I can't read the name this time but I already have one (read or typed), I keep it.
+        title = snap.title ?: title
         msgs = snap.msgs
         readState = if (snap.msgs.isEmpty()) ReadState.FAILED else ReadState.OK
     }
@@ -324,13 +322,9 @@ fun PanelUi(m: PanelModel, maxHeight: Dp) {
     val c = Pb.c
     val d by Store.data.collectAsState()
     val mode = m.modeOf(d)
-    var shown by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { shown = true }
-
-    AnimatedVisibility(
-        visible = shown,
-        enter = slideInVertically(spring(dampingRatio = 0.8f, stiffness = 380f)) { it / 3 } + fadeIn(tween(160)),
-    ) {
+    // I don't animate inside the window. The service slides the whole window view instead,
+    // because resizing an overlay window on every frame is what made the panel stutter.
+    run {
         Column(
             Modifier.padding(8.dp).fillMaxWidth().heightIn(max = maxHeight).panel(24.dp, c.surface, c.line)
         ) {
@@ -388,12 +382,19 @@ private fun ChatSettingsBlock(m: PanelModel, d: AppData) {
             label = "Notes about this person", value = chat.notes, onChange = { m.setNotes(it) },
             hint = "Gender, age, how you two talk", singleLine = false, minLines = 2,
         )
+        if (m.title == null) {
+            var typed by remember { mutableStateOf("") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Bottom) {
+                LabeledField("Chat name", typed, { typed = it }, Modifier.weight(1f), hint = "As shown at the top of Telegram")
+                PbButton("Set", { m.nameChat(typed) }, enabled = typed.isNotBlank())
+            }
+        }
         val canSmart = d.apiKey.isNotBlank() && m.title != null && !d.alwaysPrivate
         SwitchRow(
             title = "Use Smart for this chat",
             desc = when {
                 d.alwaysPrivate -> "Always Private is on in the app settings."
-                m.title == null -> "I need to read the chat name first."
+                m.title == null -> "I could not read the chat name. Type it above."
                 d.apiKey.isBlank() -> "Add your Gemini key in the app first."
                 else -> "Sends hidden text to Google for better Persian."
             },

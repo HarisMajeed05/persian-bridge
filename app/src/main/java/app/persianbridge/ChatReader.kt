@@ -14,6 +14,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -63,11 +64,20 @@ class ChatReader : AccessibilityService() {
         _connected.value = true
         val pm = getSystemService(PowerManager::class.java)
         scope.launch {
+            var misses = 0
             while (isActive) {
-                val front = pm.isInteractive && telegramRoot() != null
-                if (_front.value != front) _front.value = front
-                // I poll slowly when Telegram is away and a bit faster while it is in front.
-                withTimeoutOrNull(if (front) 600L else 1200L) { wake.receive() }
+                val seen = pm.isInteractive && telegramRoot() != null
+                if (seen) {
+                    misses = 0
+                    if (!_front.value) _front.value = true
+                } else if (_front.value && ++misses >= 3) {
+                    // One failed look is often just Telegram being busy. I only hide the bubble after three in a row.
+                    _front.value = false
+                    misses = 0
+                }
+                // Never look more than about three times a second, however many events arrive.
+                delay(300)
+                withTimeoutOrNull(if (_front.value) 600L else 1200L) { wake.receive() }
             }
         }
     }
@@ -111,12 +121,16 @@ class ChatReader : AccessibilityService() {
 
     private class Budget(var left: Int)
 
-    private fun walk(n: AccessibilityNodeInfo, b: Budget, depth: Int, visit: (AccessibilityNodeInfo) -> Unit) {
+    private fun walk(
+        n: AccessibilityNodeInfo, b: Budget, depth: Int, skip: AccessibilityNodeInfo? = null,
+        visit: (AccessibilityNodeInfo) -> Unit,
+    ) {
         if (b.left-- <= 0 || depth > 32) return
+        if (skip != null && n == skip) return
         visit(n)
         for (i in 0 until n.childCount) {
             val c = n.getChild(i) ?: continue
-            walk(c, b, depth + 1, visit)
+            walk(c, b, depth + 1, skip, visit)
         }
     }
 
@@ -149,7 +163,6 @@ class ChatReader : AccessibilityService() {
         var list: AccessibilityNodeInfo? = null
         var listArea = 0L
         var input: AccessibilityNodeInfo? = null
-        val labeled = ArrayList<Pair<Rect, AccessibilityNodeInfo>>()
 
         walk(root, Budget(900), 0) { n ->
             if (n.isEditable) {
@@ -160,9 +173,6 @@ class ChatReader : AccessibilityService() {
                 val r = Rect().also(n::getBoundsInScreen)
                 val area = r.width().toLong() * r.height()
                 if (area > listArea) { list = n; listArea = area }
-            }
-            if (label(n).isNotEmpty() && n.isVisibleToUser) {
-                labeled += Rect().also(n::getBoundsInScreen) to n
             }
         }
 
@@ -192,19 +202,33 @@ class ChatReader : AccessibilityService() {
         }
         val msgs = rows.sortedBy { it.first }.takeLast(max).map { ChatMsg(it.second, it.third) }
 
-        return Snap(guessTitle(labeled, listRect), msgs, input != null)
+        return Snap(guessTitle(root, listNode), msgs, input != null)
     }
 
-    // The chat title is the label above the message list. A TextView with real text wins,
-    // otherwise I take the widest description there, since icon buttons are narrow.
-    private fun guessTitle(labeled: List<Pair<Rect, AccessibilityNodeInfo>>, listRect: Rect): String? {
-        if (listRect.isEmpty) return null
-        val above = labeled.filter { (r, n) -> r.bottom <= listRect.top + 8 && !n.isEditable }
-        val byText = above.filter { (_, n) ->
-            !n.text.isNullOrBlank() && n.className?.toString()?.contains("TextView") == true
-        }.maxWithOrNull(compareBy<Pair<Rect, AccessibilityNodeInfo>>({ it.first.height() }, { it.first.width() }))
-        if (byText != null) return byText.second.text.toString().trim().take(80)
-        val widest = above.maxByOrNull { it.first.width() } ?: return null
+    // Telegram draws its message list underneath the header, so the title is not "above the list".
+    // I look at everything outside the list in the top band of the window instead. A TextView with
+    // real text wins, and the biggest one is the title because the status line under it is smaller.
+    private fun guessTitle(root: AccessibilityNodeInfo, list: AccessibilityNodeInfo?): String? {
+        val rootRect = Rect().also(root::getBoundsInScreen)
+        if (rootRect.isEmpty) return null
+        val limit = rootRect.top + (rootRect.height() * 0.22f).toInt()
+        val head = ArrayList<Pair<Rect, AccessibilityNodeInfo>>()
+        walk(root, Budget(500), 0, skip = list) { n ->
+            if (n.isEditable || !n.isVisibleToUser || label(n).length < 2) return@walk
+            val r = Rect().also(n::getBoundsInScreen)
+            if (r.height() > 0 && r.bottom <= limit) head += r to n
+        }
+        val noise = Regex("(?i)^(back|go back|navigate up|call|voice call|video call|more options|more|search)$")
+        val status = Regex("(?i)last seen|seen recently|online|typing|members?|subscribers?|bot$")
+        val usable = head.filter { !noise.matches(label(it.second)) }
+        val named = usable.filterNot { status.containsMatchIn(label(it.second)) }.ifEmpty { usable }
+        val order = compareByDescending<Pair<Rect, AccessibilityNodeInfo>> { it.first.height() }
+            .thenBy { it.first.top }.thenByDescending { it.first.width() }
+        val byText = named.filter { !it.second.text.isNullOrBlank() && it.second.className?.toString()?.contains("TextView") == true }
+        val anyText = named.filter { !it.second.text.isNullOrBlank() }
+        byText.sortedWith(order).firstOrNull()?.let { return it.second.text.toString().trim().take(80) }
+        anyText.sortedWith(order).firstOrNull()?.let { return it.second.text.toString().trim().take(80) }
+        val widest = named.maxByOrNull { it.first.width() } ?: return null
         return label(widest.second).substringBefore(',').trim().take(80).ifEmpty { null }
     }
 
