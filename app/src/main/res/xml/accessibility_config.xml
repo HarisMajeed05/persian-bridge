@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- I only listen to the Play Store Telegram app. If I ever switch to another build, I add its
+     package here and in ChatReader.TELEGRAM. Nothing outside these packages is ever read. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeWindowsChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagRetrieveInteractiveWindows|flagIncludeNotImportantViews"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/a11y_description"
+    android:notificationTimeout="250"
+    android:packageNames="org.telegram.messenger"
+    android:settingsActivity="app.persianbridge.MainActivity" />

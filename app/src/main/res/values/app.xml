@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Persian Bridge</string>
+    <string name="a11y_description">Reads the visible chat in Telegram so Persian Bridge can translate it, and fills the reply box with text you chose. It never sends anything and never looks at other apps.</string>
+    <string name="notif_channel">Bubble</string>
+    <string name="notif_title">Persian Bridge is running</string>
+    <string name="notif_text">The bubble shows up when Telegram is open.</string>
+    <string name="notif_stop">Stop</string>
+
+    <color name="ic_bg">#0E1513</color>
+
+    <style name="Theme.PersianBridge" parent="android:Theme.DeviceDefault.DayNight">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

@@ -1,0 +1,16 @@
+# build output
+build/
+.gradle/
+local.properties
+*.apk
+*.aab
+
+# my signing material never goes in the repo
+keystore.properties
+*.jks
+*.keystore
+
+# IDE
+.idea/
+*.iml
+.DS_Store
