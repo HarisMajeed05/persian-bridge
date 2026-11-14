@@ -17,7 +17,8 @@ concurrency:
 
 jobs:
   apk:
-    runs-on: ubuntu-latest
+    # I pin the image. ubuntu-latest is moving to a new Ubuntu and I know 24.04 ships the Android SDK.
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
       # I only build a signed release when I have added all four signing secrets.
@@ -39,7 +40,8 @@ jobs:
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
 
       - name: Build debug APK
-        run: ./gradlew --no-daemon assembleDebug
+        # The website upload can drop the executable bit, so I run the wrapper through sh.
+        run: sh gradlew --no-daemon assembleDebug
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
@@ -60,7 +62,7 @@ jobs:
           printf '%s' "$KEYSTORE_BASE64" | base64 -d > release.jks
           printf 'storeFile=release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
             "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > keystore.properties
-          ./gradlew --no-daemon assembleRelease
+          sh gradlew --no-daemon assembleRelease
           rm -f release.jks keystore.properties
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
